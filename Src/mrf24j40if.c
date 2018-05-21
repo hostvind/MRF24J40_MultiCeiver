@@ -75,12 +75,23 @@
 
 
 /**************Public Variable Definitions***************/
-mrf24j40_dev* dev;
+
 
 
 
 /**************Private Function Definitions**************/
-uint8_t MRF24J40_SendCommand(uint8_t cmd, uint8_t* tx, uint8_t* rx, uint8_t len)
+void MRF24J40_ChipSelectPullDown(mrf24j40_io* interface){
+
+    /* Use the function to pull down the CS pin*/
+    HAL_GPIO_WritePin(interface->MRF_CSN_GPIOx, interface->MRF_CSN_GPIO_PIN, GPIO_PIN_RESET);
+}
+
+void MRF24J40_ChipSelectPullUp(mrf24j40_io* interface){
+
+    /* Use the function to pull up the CS pin*/
+    HAL_GPIO_WritePin(interface->MRF_CSN_GPIOx, interface->MRF_CSN_GPIO_PIN, GPIO_PIN_SET);
+}
+uint8_t MRF24J40_SendCommand(mrf24j40_io* interface, uint8_t cmd, uint8_t* tx, uint8_t* rx, uint8_t len)
 {
     uint8_t myTX[len + 1];
     uint8_t myRX[len + 1];
@@ -92,8 +103,8 @@ uint8_t MRF24J40_SendCommand(uint8_t cmd, uint8_t* tx, uint8_t* rx, uint8_t len)
         myRX[i] = 0;
     }
 HAL_StatusTypeDef res;
-    MRF24J40_ChipSelectPullDown();
-    res = HAL_SPI_TransmitReceive(dev->spi, myTX, myRX, 1 + len, MRF_SPI_TIMEOUT);
+    MRF24J40_ChipSelectPullDown(interface);
+    res = HAL_SPI_TransmitReceive(interface->spi, myTX, myRX, 1 + len, MRF_SPI_TIMEOUT);
     if (res        != HAL_OK) {
         HAL_Delay (10);
         HAL_Delay (10);
@@ -106,7 +117,7 @@ HAL_StatusTypeDef res;
         rx[i] = myRX[1 + i];
     }
 
-    MRF24J40_ChipSelectPullUp();
+    MRF24J40_ChipSelectPullUp(interface);
 
     return 0;
 }
@@ -115,61 +126,50 @@ HAL_StatusTypeDef res;
 /**************Public Function Definitions***************/
 
 
-void MRF24J40_ChipSelectPullDown(void){
 
-    /* Use the function to pull down the CS pin*/
-    HAL_GPIO_WritePin(dev->MRF_CSN_GPIOx, dev->MRF_CSN_GPIO_PIN, GPIO_PIN_RESET);
-}
-
-void MRF24J40_ChipSelectPullUp(void){
-
-    /* Use the function to pull up the CS pin*/
-    HAL_GPIO_WritePin(dev->MRF_CSN_GPIOx, dev->MRF_CSN_GPIO_PIN, GPIO_PIN_SET);
-}
-
-void MRF24J40_WakePinPullUp(void){
+void MRF24J40_WakePinPullUp(mrf24j40_io* interface){
 
     /* Use the function to pull up the Wake pin*/
-    HAL_GPIO_WritePin(dev->MRF_WAKE_GPIOx, dev->MRF_WAKE_GPIO_PIN, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(interface->MRF_WAKE_GPIOx, interface->MRF_WAKE_GPIO_PIN, GPIO_PIN_SET);
 }
 
-void MRF24J40_WakePinPullDown(void){
+void MRF24J40_WakePinPullDown(mrf24j40_io* interface){
 
     /* Use the function to pull down the Wake pin*/
-    HAL_GPIO_WritePin(dev->MRF_WAKE_GPIOx, dev->MRF_WAKE_GPIO_PIN, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(interface->MRF_WAKE_GPIOx, interface->MRF_WAKE_GPIO_PIN, GPIO_PIN_RESET);
 }
 
-void MRF24J40_RstPinPullUp(void){
+void MRF24J40_RstPinPullUp(mrf24j40_io* interface){
 
     /* Use the function to pull up the RST pin*/
-    HAL_GPIO_WritePin(dev->MRF_RESET_GPIOx, dev->MRF_RESET_GPIO_PIN, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(interface->MRF_RESET_GPIOx, interface->MRF_RESET_GPIO_PIN, GPIO_PIN_SET);
 }
 
-void MRF24J40_RstPinPullDown(void){
+void MRF24J40_RstPinPullDown(mrf24j40_io* interface){
 
     /* Use the function to pull down the RST pin*/
-    HAL_GPIO_WritePin(dev->MRF_RESET_GPIOx, dev->MRF_RESET_GPIO_PIN, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(interface->MRF_RESET_GPIOx, interface->MRF_RESET_GPIO_PIN, GPIO_PIN_RESET);
 }
 
-void MRF24J40_InterruptEnable(void){
+void MRF24J40_InterruptEnable(mrf24j40_io* interface){
 
     /* Use the function to enable uC interrupt on pin connected to pin INT of MRF24J40 */
-                    /*MOVE TO INIT ROUTINE*/ //HAL_NVIC_SetPriority(dev->MRF_IRQn, dev->MRF_IRQ_preempt_priority, dev->MRF_IRQ_sub_priority);
-    HAL_NVIC_EnableIRQ(dev->MRF_IRQn);
+                    /*MOVE TO INIT ROUTINE*/ //HAL_NVIC_SetPriority(interface->MRF_IRQn, interface->MRF_IRQ_preempt_priority, interface->MRF_IRQ_sub_priority);
+    HAL_NVIC_EnableIRQ(interface->MRF_IRQn);
 }
 
-void MRF24J40_InterruptDisable(void){
+void MRF24J40_InterruptDisable(mrf24j40_io* interface){
 
     /* Use the function to disable uC interrupt on pin connected to pin INT of MRF24J40 */
-    HAL_NVIC_DisableIRQ(dev->MRF_IRQn);
+    HAL_NVIC_DisableIRQ(interface->MRF_IRQn);
 }
 
-void MRF24J40_ClearInterruptFlag(void){
+void MRF24J40_ClearInterruptFlag(mrf24j40_io* interface){
     /* Use the function to clear uC interrupt flag on pin connected to pin INT of MRF24J40 */
     /*In HAL not needed - a standart built-in IRQ handle does it*/
 }
 
-void MRF24J40_PinOutInit(void){
+void MRF24J40_PinOutInit(mrf24j40_io* interface){
     GPIO_InitTypeDef GPIO_InitStruct;
 
 /*
@@ -180,42 +180,42 @@ void MRF24J40_PinOutInit(void){
     GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_MEDIUM;
-    GPIO_InitStruct.Pin = dev->MRF_CSN_GPIO_PIN;
-    HAL_GPIO_Init(dev->MRF_CSN_GPIOx, &GPIO_InitStruct);
-    
-    // WAKE pin
-    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-    GPIO_InitStruct.Pull = GPIO_NOPULL;
-    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_MEDIUM;
-    GPIO_InitStruct.Pin = dev->MRF_WAKE_GPIO_PIN;
-    HAL_GPIO_Init(dev->MRF_WAKE_GPIOx, &GPIO_InitStruct);
+    GPIO_InitStruct.Pin = interface->MRF_CSN_GPIO_PIN;
+    HAL_GPIO_Init(interface->MRF_CSN_GPIOx, &GPIO_InitStruct);
     
     // RESET pin
     GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_MEDIUM;
-    GPIO_InitStruct.Pin = dev->MRF_RESET_GPIO_PIN;
-    HAL_GPIO_Init(dev->MRF_RESET_GPIOx, &GPIO_InitStruct);
+    GPIO_InitStruct.Pin = interface->MRF_RESET_GPIO_PIN;
+    HAL_GPIO_Init(interface->MRF_RESET_GPIOx, &GPIO_InitStruct);
+    
+    // WAKE pin
+    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_MEDIUM;
+    GPIO_InitStruct.Pin = interface->MRF_WAKE_GPIO_PIN;
+    HAL_GPIO_Init(interface->MRF_WAKE_GPIOx, &GPIO_InitStruct);
  /*  - Configure the pins connected to CS, RST, WAKE as output HIGH ("1")
  */
-    MRF24J40_ChipSelectPullUp();
-    MRF24J40_RstPinPullUp();
-    MRF24J40_WakePinPullUp();    
+    MRF24J40_ChipSelectPullUp(interface);
+    MRF24J40_RstPinPullUp(interface);
+    MRF24J40_WakePinPullUp(interface);    
  /*  - Set the interrupt event on falling edge at INT pin
  */
     // IRQ_Pin
-    GPIO_InitStruct.Pin = dev->MRF_IRQ_GPIO_PIN;
+    GPIO_InitStruct.Pin = interface->MRF_IRQ_GPIO_PIN;
     GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
     GPIO_InitStruct.Pull = GPIO_PULLUP;
-    HAL_GPIO_Init(dev->MRF_IRQ_GPIOx, &GPIO_InitStruct);
+    HAL_GPIO_Init(interface->MRF_IRQ_GPIOx, &GPIO_InitStruct);
  /*  - Enable external interrupts
  */
-    HAL_NVIC_SetPriority(dev->MRF_IRQn, 0, 0);
-    HAL_NVIC_EnableIRQ(dev->MRF_IRQn);
+    HAL_NVIC_SetPriority(interface->MRF_IRQn, 0, 0);
+    //HAL_NVIC_EnableIRQ(interface->MRF_IRQn);
 
 }
 
-void MRF24J40_Disable(void){
+void MRF24J40_Disable(mrf24j40_io* interface){
 
     /*
      * Set CS and RST pins to LOW ("0")
@@ -223,27 +223,28 @@ void MRF24J40_Disable(void){
     /*DEBUG
     maybe too early
     try at the end of init*/
-//    MRF24J40_ChipSelectPullDown();
-//    MRF24J40_RstPinPullDown();
+    MRF24J40_ChipSelectPullDown(interface);
+    MRF24J40_RstPinPullDown(interface);
+//    MRF24J40_WakePinPullDown(interface); 
 
 }
 
 /* ---------------------------- SPI dependent code ---------------------------- */
 
-void MRF24J40IF_SpiTransmit(uint8_t v) // write 1 byte to SPI
+void MRF24J40IF_SpiTransmit(mrf24j40_io* interface, uint8_t v) // write 1 byte to SPI
 {
     /* Interface for transmit data through SPI */
     uint8_t *pTx = &v;
     uint8_t *pRx;
-    HAL_SPI_TransmitReceive(dev->spi, pTx, pRx, 1, MRF_SPI_TIMEOUT);
+    HAL_SPI_TransmitReceive(interface->spi, pTx, pRx, 1, MRF_SPI_TIMEOUT);
 }
 
-uint8_t MRF24J40IF_SpiReceive(void) // read 1 byte from SPI
+uint8_t MRF24J40IF_SpiReceive(mrf24j40_io* interface) // read 1 byte from SPI
 {
     /* Interface for receive data through SPI */
     uint8_t *pTx;
     uint8_t *pRx;
-    HAL_SPI_TransmitReceive(dev->spi, pTx, pRx, 1, MRF_SPI_TIMEOUT);
+    HAL_SPI_TransmitReceive(interface->spi, pTx, pRx, 1, MRF_SPI_TIMEOUT);
     return *pRx;
 }
 

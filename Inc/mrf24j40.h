@@ -13,6 +13,7 @@
 
 #include <stdint.h>
 #include <stdlib.h>
+#include "mrf24j40if.h"
 
 /***************************Public Macro Definitions********************************/
 
@@ -155,6 +156,10 @@ typedef struct                                  // radio state
     uint8_t volatile    RXPacketCount;                      // number of buffers waiting to be read (modified by ISR)
     uint8_t             IEEESeqNum;                         // tx packet sequence number (initial value not important)
     uint8_t             Channel;                            // current radio channel
+    
+    MRF_RESULT          LastOpSuccess;                      // whether the last operation was successful
+    long                ErrorLevel;                         // bit mask to store unsuccessful operations. 0 is good
+                                                            // 1 is a failed test. Bit number equals test number
 } MRF24J40_STATUS;
 
 
@@ -225,12 +230,18 @@ typedef struct
     uint64_t    srcAddr;                // only 1st 2 bytes used if short addr
 } PACKET;
 
+
+typedef struct
+{
+    MRF24J40_STATUS volatile RadioStatus;                        // radio state
+    PACKET Tx;                                                   // description of packet to be transmitted
+    PACKET Rx;                                                   // description of received packet (after parsing)
+    mrf24j40_io interface;
+} MRF24J40_DEVICE;    
 /***************************Public Data Definitions********************************/
 
-extern MRF24J40_STATUS volatile RadioStatus;                        // radio state
-extern PACKET Tx;                                                   // description of packet to be transmitted
-extern PACKET Rx;                                                   // description of received packet (after parsing)
-//extern mrf24j40_dev mrf1;
+
+extern MRF24J40_DEVICE *dev_main;   
 
 /***************************Public Function Definitions****************************/
 
@@ -248,5 +259,9 @@ void        RadioDiscardPacket(void);
 void        ZigBeeDisable(void);
 void        RadioInitP2P(void);
 void        CNZBInterrupt(void);
+uint8_t ReadRegister(uint16_t reg);
+void WriteRegister(uint16_t reg, uint8_t value);
+    //check wheter regs have their initial values
+MRF_RESULT MRF_PostInitCheck (MRF24J40_DEVICE* dev);
 
 #endif /* MRF24J40_H_ */

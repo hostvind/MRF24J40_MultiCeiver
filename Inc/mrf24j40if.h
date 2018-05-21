@@ -13,7 +13,7 @@
 
 #include <stdint.h>
 #include "stm32f1xx_hal.h"
-
+//extern  mrf24j40_io* interface;
 /***************************Public Macro Definitions********************************/
 
 #define MILLISECONDS(x)        x
@@ -49,28 +49,27 @@ typedef struct {
     uint8_t MRF_IRQ_preempt_priority;
     uint8_t MRF_IRQ_sub_priority;
 
-} mrf24j40_dev;
+} mrf24j40_io;
 
 
 /***************************Public Data Definitions********************************/
 
 
-
 /***************************Public Function Definitions****************************/
-uint8_t MRF24J40_SendCommand(uint8_t cmd, uint8_t* tx, uint8_t* rx, uint8_t len);
-void MRF24J40_ChipSelectPullDown(void);
-void MRF24J40_ChipSelectPullUp(void);
-void MRF24J40_WakePinPullUp(void);
-void MRF24J40_WakePinPullDown(void);
-void MRF24J40_RstPinPullUp(void);
-void MRF24J40_RstPinPullDown(void);
-void MRF24J40_PinOutInit(void);
-void MRF24J40_InterruptEnable(void);
-void MRF24J40_InterruptDisable(void);
-void MRF24J40_ClearInterruptFlag(void);
-void MRF24J40_Disable(void);
-void     MRF24J40IF_SpiTransmit(uint8_t v);
-uint8_t  MRF24J40IF_SpiReceive(void);
+void MRF24J40_ChipSelectPullDown(mrf24j40_io* interface);
+void MRF24J40_ChipSelectPullUp(mrf24j40_io* interface);
+uint8_t MRF24J40_SendCommand(mrf24j40_io* interface, uint8_t cmd, uint8_t* tx, uint8_t* rx, uint8_t len);
+void MRF24J40_WakePinPullUp(mrf24j40_io* interface);
+void MRF24J40_WakePinPullDown(mrf24j40_io* interface);
+void MRF24J40_RstPinPullUp(mrf24j40_io* interface);
+void MRF24J40_RstPinPullDown(mrf24j40_io* interface);
+void MRF24J40_InterruptEnable(mrf24j40_io* interface);
+void MRF24J40_InterruptDisable(mrf24j40_io* interface);
+void MRF24J40_ClearInterruptFlag(mrf24j40_io* interface);
+void MRF24J40_PinOutInit(mrf24j40_io* interface);
+void MRF24J40_Disable(mrf24j40_io* interface);
+void     MRF24J40IF_SpiTransmit(mrf24j40_io* interface, uint8_t v);
+uint8_t  MRF24J40IF_SpiReceive(mrf24j40_io* interface);
 
 void     MRF24J40IF_Delay_ms(uint16_t milliseconds);
 uint32_t MRF24J40IF_GetSysMilliseconds(void);

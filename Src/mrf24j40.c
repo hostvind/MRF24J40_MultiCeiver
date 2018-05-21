@@ -9,7 +9,6 @@
 /**************Imports***********************************/
 
 #include "mrf24j40.h"
-#include "mrf24j40if.h"
 #include "mrf24j40_memmap.h"
 #include <string.h>         // memset()
 
@@ -34,6 +33,8 @@
 #define MRF24J40_COPY_BYTES_TO(variable, n, fromAddress)   for(index = 0; index < n; ++index){ \
         BYTEPTR(variable)[index] = highRead(fromAddress+index); \
 }
+#define STATE_ERROR dev_main->RadioStatus.LastOpSuccess = MRF_ERROR;
+#define STATE_OK dev_main->RadioStatus.LastOpSuccess = MRF_OK;
 
 /**************Private Type Definitions******************/
 
@@ -45,9 +46,10 @@ uint8_t txPayload[TX_PAYLOAD_SIZE];     // TX payload buffer
 uint8_t rxPayload[MAX_RX_PAYLOAD_SIZE]; // RX payload buffer
 
 /**************Public Variable Definitions***************/
+MRF24J40_DEVICE *dev_main;      //a pointer, to device driver
 
-MRF24J40_STATUS volatile RadioStatus; // radio state
-PACKET Tx, Rx; // structures describing transmitted and received packets
+//MRF24J40_STATUS volatile RadioStatus; // radio state
+//PACKET Tx, Rx; // structures describing transmitted and received packets
 
 /**************Private Function Definitions**************/
 
@@ -76,7 +78,10 @@ uint8_t lowRead(uint8_t reg) {
 //    return toReturn;
     uint8_t tx = 0;
     uint8_t data;
-    MRF24J40_SendCommand(((reg<<1) & 0x7e), &tx, &data, 1);
+    if (MRF24J40_SendCommand(&dev_main->interface, ((reg<<1) & 0x7e), &tx, &data, 1)==MRF_OK)
+        STATE_OK
+    else
+        STATE_ERROR
     return data;
 }
 
@@ -94,7 +99,10 @@ void lowWrite(uint8_t address, uint8_t value) {
 
     uint8_t tx = value;
     uint8_t rx=0;
-    MRF24J40_SendCommand(((address<<1) & 0x7e), &tx, &rx, 1);
+    if (MRF24J40_SendCommand(&dev_main->interface, (((address<<1) & 0x7f) | 0x01), &tx, &rx, 1)==MRF_OK)        
+        STATE_OK
+    else
+        STATE_ERROR
 }
 
 
@@ -122,11 +130,13 @@ uint8_t highRead(uint16_t reg) {
     MSB=(reg>>3) | 0x80;
     LSB[0]=(reg<<5) & 0xf8;
     LSB[1]=0;
-    if (MRF24J40_SendCommand(MSB, LSB, rx, 2) != MRF_OK)
+    if (MRF24J40_SendCommand(&dev_main->interface, MSB, LSB, rx, 2) != MRF_OK)
         {
+        STATE_ERROR
         return 0;
         }
 //    rx[0]=rx[1];
+        STATE_OK
     return rx[1];
 }
 
@@ -150,7 +160,10 @@ void highWrite(uint16_t reg, uint8_t value) {
     MSB=(reg>>3) | 0x80;
     LSB[0]=((reg<<5) & 0xF8)|0x10;
     LSB[1]= value;
-    MRF24J40_SendCommand(MSB, LSB, &rx, 2);
+    if (MRF24J40_SendCommand(&dev_main->interface, MSB, LSB, &rx, 2)==MRF_OK)
+        STATE_OK
+    else
+        STATE_ERROR
 }
 
 
@@ -267,28 +280,28 @@ void ParseReceivedMessage(void){
     uint16_t auxSecHeaderAddr = 0;
     uint16_t payloadAddr = 0;
 
-    Rx.payloadLength = 0;
+    dev_main->Rx.payloadLength = 0;
 
-    MRF24J40_COPY_BYTES_TO(Rx.frameLength, ONE_BYTE, RX_FRAME_LENGTH_VALUE_ADDR);  // Frame length byte shows the length of packet except LQI and RSSI bytes
-    MRF24J40_COPY_BYTES_TO(Rx.frameControl.value, TWO_BYTES, RX_FRAME_CONTROL_VALUE_ADDR);
-    MRF24J40_COPY_BYTES_TO(Rx.frameNumber, ONE_BYTE, RX_SEQUENCE_NUMBER_VALUE_ADDR);
+    MRF24J40_COPY_BYTES_TO(dev_main->Rx.frameLength, ONE_BYTE, RX_FRAME_LENGTH_VALUE_ADDR);  // Frame length byte shows the length of packet except LQI and RSSI bytes
+    MRF24J40_COPY_BYTES_TO(dev_main->Rx.frameControl.value, TWO_BYTES, RX_FRAME_CONTROL_VALUE_ADDR);
+    MRF24J40_COPY_BYTES_TO(dev_main->Rx.frameNumber, ONE_BYTE, RX_SEQUENCE_NUMBER_VALUE_ADDR);
 
-    if(Rx.frameControl.Field.dstAddrMode != NO_ADDR_FIELD){
+    if(dev_main->Rx.frameControl.Field.dstAddrMode != NO_ADDR_FIELD){
 
         dstPANIDAddr = RX_SEQUENCE_NUMBER_VALUE_ADDR + ONE_BYTE;
-        MRF24J40_COPY_BYTES_TO(Rx.dstPANID, TWO_BYTES, dstPANIDAddr);
+        MRF24J40_COPY_BYTES_TO(dev_main->Rx.dstPANID, TWO_BYTES, dstPANIDAddr);
 
         dstAddrValueAddr = dstPANIDAddr + TWO_BYTES;
 
-        switch (Rx.frameControl.Field.dstAddrMode)
+        switch (dev_main->Rx.frameControl.Field.dstAddrMode)
         {
             case SHORT_ADDR_FIELD:
-                MRF24J40_COPY_BYTES_TO(Rx.dstAddr, TWO_BYTES, dstAddrValueAddr);
+                MRF24J40_COPY_BYTES_TO(dev_main->Rx.dstAddr, TWO_BYTES, dstAddrValueAddr);
                 srcPANIDAddr = dstAddrValueAddr + TWO_BYTES;
                 break;
 
             case LONG_ADDR_FIELD:
-                MRF24J40_COPY_BYTES_TO(Rx.dstAddr, EIGHT_BYTES, dstAddrValueAddr);
+                MRF24J40_COPY_BYTES_TO(dev_main->Rx.dstAddr, EIGHT_BYTES, dstAddrValueAddr);
                 srcPANIDAddr = dstAddrValueAddr + EIGHT_BYTES;
                 break;
 
@@ -300,27 +313,27 @@ void ParseReceivedMessage(void){
         srcPANIDAddr = RX_SEQUENCE_NUMBER_VALUE_ADDR + ONE_BYTE;
     }
 
-    if(Rx.frameControl.Field.srcAddrMode != NO_ADDR_FIELD){
+    if(dev_main->Rx.frameControl.Field.srcAddrMode != NO_ADDR_FIELD){
 
-        if(Rx.frameControl.Field.panIDcomp == 0){
-            MRF24J40_COPY_BYTES_TO(Rx.srcPANID, TWO_BYTES, srcPANIDAddr);
+        if(dev_main->Rx.frameControl.Field.panIDcomp == 0){
+            MRF24J40_COPY_BYTES_TO(dev_main->Rx.srcPANID, TWO_BYTES, srcPANIDAddr);
             srcAddrValueAddr = srcPANIDAddr + TWO_BYTES;
         }
         else{
-            Rx.srcPANID = Rx.dstPANID;
+            dev_main->Rx.srcPANID = dev_main->Rx.dstPANID;
             srcAddrValueAddr = srcPANIDAddr;
         }
 
 
-        switch (Rx.frameControl.Field.dstAddrMode)
+        switch (dev_main->Rx.frameControl.Field.dstAddrMode)
         {
             case SHORT_ADDR_FIELD:
-                MRF24J40_COPY_BYTES_TO(Rx.srcAddr, TWO_BYTES, srcAddrValueAddr);
+                MRF24J40_COPY_BYTES_TO(dev_main->Rx.srcAddr, TWO_BYTES, srcAddrValueAddr);
                 auxSecHeaderAddr = srcAddrValueAddr + TWO_BYTES;
                 break;
 
             case LONG_ADDR_FIELD:
-                MRF24J40_COPY_BYTES_TO(Rx.srcAddr, EIGHT_BYTES, srcAddrValueAddr);
+                MRF24J40_COPY_BYTES_TO(dev_main->Rx.srcAddr, EIGHT_BYTES, srcAddrValueAddr);
                 auxSecHeaderAddr = srcAddrValueAddr + EIGHT_BYTES;
                 break;
 
@@ -332,35 +345,35 @@ void ParseReceivedMessage(void){
         auxSecHeaderAddr = srcPANIDAddr;
     }
 
-    if(Rx.frameControl.Field.securityEnabled){
+    if(dev_main->Rx.frameControl.Field.securityEnabled){
 
-        MRF24J40_COPY_BYTES_TO(Rx.auxSecurityHeader.securityControl.value, ONE_BYTE, auxSecHeaderAddr);
-        MRF24J40_COPY_BYTES_TO(Rx.auxSecurityHeader.frameCounter, FOUR_BYTES, auxSecHeaderAddr+ONE_BYTE);
+        MRF24J40_COPY_BYTES_TO(dev_main->Rx.auxSecurityHeader.securityControl.value, ONE_BYTE, auxSecHeaderAddr);
+        MRF24J40_COPY_BYTES_TO(dev_main->Rx.auxSecurityHeader.frameCounter, FOUR_BYTES, auxSecHeaderAddr+ONE_BYTE);
 
         auxSecHeaderAddr += (FOUR_BYTES + ONE_BYTE);
 
-        if(Rx.auxSecurityHeader.securityControl.Field.keyIdMode != KEY_ID_MODE_IMPLICIT){
+        if(dev_main->Rx.auxSecurityHeader.securityControl.Field.keyIdMode != KEY_ID_MODE_IMPLICIT){
 
-            switch (Rx.auxSecurityHeader.securityControl.Field.keyIdMode)
+            switch (dev_main->Rx.auxSecurityHeader.securityControl.Field.keyIdMode)
             {
                 case KEY_ID_MODE_1BYTE:
-                    MRF24J40_COPY_BYTES_TO(Rx.auxSecurityHeader.keyID.keyIndex, ONE_BYTE, auxSecHeaderAddr);
+                    MRF24J40_COPY_BYTES_TO(dev_main->Rx.auxSecurityHeader.keyID.keyIndex, ONE_BYTE, auxSecHeaderAddr);
                     payloadAddr = auxSecHeaderAddr + ONE_BYTE;
                 break;
 
 
                 case KEY_ID_MODE_4BYTE:
 
-                    MRF24J40_COPY_BYTES_TO(Rx.auxSecurityHeader.keyID.keySource, FOUR_BYTES, auxSecHeaderAddr);
-                    MRF24J40_COPY_BYTES_TO(Rx.auxSecurityHeader.keyID.keyIndex, ONE_BYTE, auxSecHeaderAddr+FOUR_BYTES);
+                    MRF24J40_COPY_BYTES_TO(dev_main->Rx.auxSecurityHeader.keyID.keySource, FOUR_BYTES, auxSecHeaderAddr);
+                    MRF24J40_COPY_BYTES_TO(dev_main->Rx.auxSecurityHeader.keyID.keyIndex, ONE_BYTE, auxSecHeaderAddr+FOUR_BYTES);
                     payloadAddr = auxSecHeaderAddr + (FOUR_BYTES+ONE_BYTE);
                 break;
 
 
                 case KEY_ID_MODE_8BYTE:
 
-                    MRF24J40_COPY_BYTES_TO(Rx.auxSecurityHeader.keyID.keySource, EIGHT_BYTES, auxSecHeaderAddr);
-                    MRF24J40_COPY_BYTES_TO(Rx.auxSecurityHeader.keyID.keyIndex, ONE_BYTE, auxSecHeaderAddr+EIGHT_BYTES);
+                    MRF24J40_COPY_BYTES_TO(dev_main->Rx.auxSecurityHeader.keyID.keySource, EIGHT_BYTES, auxSecHeaderAddr);
+                    MRF24J40_COPY_BYTES_TO(dev_main->Rx.auxSecurityHeader.keyID.keyIndex, ONE_BYTE, auxSecHeaderAddr+EIGHT_BYTES);
                     payloadAddr = auxSecHeaderAddr + (EIGHT_BYTES+ONE_BYTE);
                 break;
             }
@@ -371,17 +384,17 @@ void ParseReceivedMessage(void){
         payloadAddr = auxSecHeaderAddr;
     }
 
-    Rx.headerLength = payloadAddr - RX_FIFO_START_ADDR;
+    dev_main->Rx.headerLength = payloadAddr - RX_FIFO_START_ADDR;
 
 
-    for (index = 0; index < (Rx.frameLength-1)-Rx.headerLength; ++index)
+    for (index = 0; index < (dev_main->Rx.frameLength-1)-dev_main->Rx.headerLength; ++index)
     {
-        Rx.payload[Rx.payloadLength++] = highRead(payloadAddr+index);
+        dev_main->Rx.payload[dev_main->Rx.payloadLength++] = highRead(payloadAddr+index);
     }
 
-    MRF24J40_COPY_BYTES_TO(Rx.fcs, TWO_BYTES, payloadAddr+Rx.payloadLength);
-    MRF24J40_COPY_BYTES_TO(Rx.lqi, ONE_BYTE, payloadAddr+Rx.payloadLength+TWO_BYTES);
-    MRF24J40_COPY_BYTES_TO(Rx.rssi, ONE_BYTE, payloadAddr+Rx.payloadLength+TWO_BYTES+ONE_BYTE);
+    MRF24J40_COPY_BYTES_TO(dev_main->Rx.fcs, TWO_BYTES, payloadAddr+dev_main->Rx.payloadLength);
+    MRF24J40_COPY_BYTES_TO(dev_main->Rx.lqi, ONE_BYTE, payloadAddr+dev_main->Rx.payloadLength+TWO_BYTES);
+    MRF24J40_COPY_BYTES_TO(dev_main->Rx.rssi, ONE_BYTE, payloadAddr+dev_main->Rx.payloadLength+TWO_BYTES+ONE_BYTE);
 }
 
 
@@ -412,21 +425,21 @@ MRF_RESULT initMRF24J40(void) {
     uint8_t i = 0;
     uint32_t radioReset = MRF24J40IF_GetSysMilliseconds(); // record time we started the reset procedure
 
-    MRF24J40_PinOutInit();
+    MRF24J40_PinOutInit(&dev_main->interface);
 
     MRF24J40IF_Delay_ms(2);
 
-    RadioStatus.LastTXTriggerTick=0;
-    RadioStatus.ResetCount++;
+    dev_main->RadioStatus.LastTXTriggerTick=0;
+    dev_main->RadioStatus.ResetCount++;
 
-    RadioStatus.TX_BUSY = 0; // tx is not busy after reset
+    dev_main->RadioStatus.TX_BUSY = 0; // tx is not busy after reset
 
-    if(RadioStatus.ResetCount != START_UP){
+    if(dev_main->RadioStatus.ResetCount != START_UP){
 
-        RadioStatus.TX_FAIL = 1; // if we had to reset, consider last packet (if any) as failed
+        dev_main->RadioStatus.TX_FAIL = 1; // if we had to reset, consider last packet (if any) as failed
     }
-    RadioStatus.TX_PENDING_ACK = 0; // not pending an ack after reset
-    RadioStatus.SLEEPING = 0; // radio is not sleeping
+    dev_main->RadioStatus.TX_PENDING_ACK = 0; // not pending an ack after reset
+    dev_main->RadioStatus.SLEEPING = 0; // radio is not sleeping
 
     /* do a soft reset */
     lowWrite(SOFTRST, RSTPWR|RSTBB|RSTMAC); // reset everything (power, baseband, MAC) (also does wakeup if in sleep)
@@ -438,7 +451,7 @@ MRF_RESULT initMRF24J40(void) {
     } while ((i & (RSTPWR|RSTBB|RSTMAC)) != (uint8_t)CLEAR_REGISTER); // wait for hardware to clear reset bits
     lowWrite(RXFLUSH, RXFLUSH_BIT); //RXFLUSH = 0x01 flush the RX fifo, leave WAKE pin disabled
 
-    RadioSetAddress(RadioStatus.MyShortAddress, RadioStatus.MyLongAddress, RadioStatus.MyPANID);
+    RadioSetAddress(dev_main->RadioStatus.MyShortAddress, dev_main->RadioStatus.MyLongAddress, dev_main->RadioStatus.MyPANID);
 
     highWrite(RFCON0, RFOPT_1|RFOPT_0); // RFOPT=0x03
     highWrite(RFCON1, VCOOPT_1); // VCOOPT=0x02, per datasheet
@@ -447,7 +460,7 @@ MRF_RESULT initMRF24J40(void) {
     highWrite(RFCON6, TXFIL|_20MRECVR); // RFCON6 = 0x90 TXFILter on, 20MRECVR set to < 3 mS
     highWrite(RFCON7, SLPCLKSEL_1); // RFCON7 = 0x80 sleep clock 100 kHz internal
     highWrite(RFCON8, RFVCO); // RFCON8 = 0x10 RFVCO to 1
-
+    
     highWrite(SLPCON1, CLKOUTEN|SLPCLKDIV_0); // SLPCON1 = 0x21 CLKOUT disabled, sleep clock divisor is 2
 
     lowWrite(BBREG2, CCAMO); // BBREG2 = 0x80 CCA energy threshold mode
@@ -467,7 +480,7 @@ MRF_RESULT initMRF24J40(void) {
     highWrite(RFCON0, RFOPT_1|RFOPT_0); // RFCON0 = 0x03 this was previously done above
     highWrite(RFCON1, VCOOPT_1); // RFCON1 = 0x02 VCCOPT - whatever that does...
 
-    RadioSetChannel(RadioStatus.Channel); // tune to current radio channel
+    RadioSetChannel(dev_main->RadioStatus.Channel); // tune to current radio channel
 
 #ifdef TURBO_MODE           // propriatary TURBO_MODE runs at 625 kbps (vs. 802.15.4 compliant 250 kbps)
     lowWrite(BBREG0, TURBO);    // BBREG0 = 0x01 TURBO mode enable
@@ -481,8 +494,8 @@ MRF_RESULT initMRF24J40(void) {
     // now delay at least 192 uS per datasheet init
     MRF24J40IF_Delay_ms(10);
 
-    MRF24J40_InterruptEnable();
-    return MRF_OK;
+    MRF24J40_InterruptEnable(&dev_main->interface);
+    return dev_main->RadioStatus.LastOpSuccess;
 }
 
 // on return, 1=radio is setup, 0=there is no radio
@@ -491,20 +504,22 @@ MRF_RESULT RadioInit(void) // cold start radio init
 {
     MRF_RESULT radio;
 
-    memset((void*) &RadioStatus, 0, sizeof (RadioStatus));
+    memset((void*) &dev_main->RadioStatus, 0, sizeof (dev_main->RadioStatus));
 
-    RadioStatus.MyPANID = MY_PAN_ID;
+    dev_main->RadioStatus.MyPANID = MY_PAN_ID;
 
-    RadioStatus.MyShortAddress = SERVER_SHORT_ADDRESS;
+    dev_main->RadioStatus.MyShortAddress = SERVER_SHORT_ADDRESS;
 
-    RadioStatus.ServerShortAddress = SERVER_SHORT_ADDRESS;
-    RadioStatus.MyLongAddress = MY_LONG_ADDRESS;
-    RadioStatus.Channel = 11; // start at channel 11
-    Rx.payload = rxPayload;
-    Tx.payload = txPayload;
+    dev_main->RadioStatus.ServerShortAddress = SERVER_SHORT_ADDRESS;
+    dev_main->RadioStatus.MyLongAddress = MY_LONG_ADDRESS;
+    dev_main->RadioStatus.Channel = 11; // start at channel 11
+    dev_main->Rx.payload = rxPayload;
+    dev_main->Tx.payload = txPayload;
 
     radio = initMRF24J40(); // init radio hardware, tune to RadioStatus.Channel
-    MRF24J40_InterruptEnable();
+    if (radio == MRF_ERROR)
+        return radio;
+    MRF24J40_InterruptEnable(&dev_main->interface);
 
     return radio;
 }
@@ -524,9 +539,9 @@ void RadioSetAddress(uint16_t shortAddress, uint64_t longAddress, uint16_t panID
         lowWrite(EADR0+i,BYTEPTR(longAddress)[i]);
     }
 
-    RadioStatus.MyPANID = panID;
-    RadioStatus.MyShortAddress = shortAddress;
-    RadioStatus.MyLongAddress = longAddress;
+    dev_main->RadioStatus.MyPANID = panID;
+    dev_main->RadioStatus.MyShortAddress = shortAddress;
+    dev_main->RadioStatus.MyLongAddress = longAddress;
 }
 
 // Set radio channel.  Returns with success/fail flag.
@@ -540,7 +555,7 @@ uint8_t RadioSetChannel(uint8_t channel) {
         return EXIT_FAILURE; // max output is 100mW (USA)
 #endif                      // rolloff is not steep enough to avoid 2483.5 from channel 26 center of 2480 MHz at full MB power
 
-    RadioStatus.Channel = channel;
+    dev_main->RadioStatus.Channel = channel;
     highWrite(RFCON0, ((channel - 11) << 4) | 0x03);
     lowWrite(RFCTL, RFRST); // reset RF state machine
     lowWrite(RFCTL, CLEAR_REGISTER); // back to normal
@@ -567,7 +582,7 @@ void RadioSetSleep(uint8_t powerState) {
         lowWrite(WAKECON, IMMWAKE); // WAKECON = 0x80 WAKECON; enable immediate wakeup
         lowWrite(SLPACK, SLPACK_BIT); // SLPACK = 0x80 SLPACK; force radio to sleep now
 
-        RadioStatus.SLEEPING = 1; // radio is sleeping
+        dev_main->RadioStatus.SLEEPING = 1; // radio is sleeping
     }
     else
         initMRF24J40(); // could wakeup with WAKE pin or by toggling REGWAKE (1 then 0), but this is simpler
@@ -620,45 +635,45 @@ void RadioTXRaw(void) {
     uint8_t wReg; // radio write register (into TX FIFO starting at long addr 0)
     uint8_t length = 0;
 
-    lowWrite(TXNCON, (Tx.frameControl.value & TXNACKREQ) | INDIRECT);
-    wReg = toTXfifo(TX_NORMAL_FIFO_START_ADDR+2, BYTEPTR(Tx.frameControl), 2); // frame control (2)
-    wReg = toTXfifo(wReg, BYTEPTR(Tx.frameNumber), 1);                         //sequence number (1)
+    lowWrite(TXNCON, (dev_main->Tx.frameControl.value & TXNACKREQ) | INDIRECT);
+    wReg = toTXfifo(TX_NORMAL_FIFO_START_ADDR+2, BYTEPTR(dev_main->Tx.frameControl), 2); // frame control (2)
+    wReg = toTXfifo(wReg, BYTEPTR(dev_main->Tx.frameNumber), 1);                         //sequence number (1)
 
-    if (Tx.frameControl.Field.dstAddrMode == SHORT_ADDR_FIELD) // if a short dest addr is present
+    if (dev_main->Tx.frameControl.Field.dstAddrMode == SHORT_ADDR_FIELD) // if a short dest addr is present
     {
-        wReg = toTXfifo(wReg, BYTEPTR(Tx.dstPANID), 2); // write dstPANID
-        wReg = toTXfifo(wReg, BYTEPTR(Tx.dstAddr), 2); // write short address
-    } else if (Tx.frameControl.Field.dstAddrMode == LONG_ADDR_FIELD)                // if a long dest addr is present
+        wReg = toTXfifo(wReg, BYTEPTR(dev_main->Tx.dstPANID), 2); // write dstPANID
+        wReg = toTXfifo(wReg, BYTEPTR(dev_main->Tx.dstAddr), 2); // write short address
+    } else if (dev_main->Tx.frameControl.Field.dstAddrMode == LONG_ADDR_FIELD)                // if a long dest addr is present
     {
-        wReg = toTXfifo(wReg, BYTEPTR(Tx.dstPANID), 2); // write dstPANID
-        wReg = toTXfifo(wReg, BYTEPTR(Tx.dstAddr), 8); // long addr
+        wReg = toTXfifo(wReg, BYTEPTR(dev_main->Tx.dstPANID), 2); // write dstPANID
+        wReg = toTXfifo(wReg, BYTEPTR(dev_main->Tx.dstAddr), 8); // long addr
     }
 
     // now wReg is at start of source PANID (if present)
 
-    if ( Tx.frameControl.Field.srcAddrMode != NO_ADDR_FIELD &&  // if source present
-         Tx.frameControl.Field.dstAddrMode != NO_ADDR_FIELD &&  // and dest present
-         !Tx.frameControl.Field.panIDcomp ){                        // and no PANID compression
-        wReg = toTXfifo(wReg,BYTEPTR(Tx.srcPANID), 2);      // then write src PANID
+    if ( dev_main->Tx.frameControl.Field.srcAddrMode != NO_ADDR_FIELD &&  // if source present
+         dev_main->Tx.frameControl.Field.dstAddrMode != NO_ADDR_FIELD &&  // and dest present
+         !dev_main->Tx.frameControl.Field.panIDcomp ){                        // and no PANID compression
+        wReg = toTXfifo(wReg,BYTEPTR(dev_main->Tx.srcPANID), 2);      // then write src PANID
     }
 
-    if (Tx.frameControl.Field.srcAddrMode == SHORT_ADDR_FIELD){                 // if a short src addr is present
-        wReg = toTXfifo(wReg,BYTEPTR(Tx.srcAddr), 2);
-    } else if (Tx.frameControl.Field.srcAddrMode == LONG_ADDR_FIELD){                   // if a long src addr is present
-        wReg = toTXfifo(wReg,BYTEPTR(Tx.srcAddr), 8);
+    if (dev_main->Tx.frameControl.Field.srcAddrMode == SHORT_ADDR_FIELD){                 // if a short src addr is present
+        wReg = toTXfifo(wReg,BYTEPTR(dev_main->Tx.srcAddr), 2);
+    } else if (dev_main->Tx.frameControl.Field.srcAddrMode == LONG_ADDR_FIELD){                   // if a long src addr is present
+        wReg = toTXfifo(wReg,BYTEPTR(dev_main->Tx.srcAddr), 8);
     }
 
     // now wReg is pointing to first wReg after header (m)
     length = wReg-2;
     (void)toTXfifo(TX_NORMAL_FIFO_START_ADDR, BYTEPTR(length), 1);  // header length, m (-2 for header & frame lengths)
 
-    wReg = toTXfifo(wReg, (uint8_t*)Tx.payload, Tx.payloadLength);
+    wReg = toTXfifo(wReg, (uint8_t*)dev_main->Tx.payload, dev_main->Tx.payloadLength);
 
     length = wReg-2;
     (void)toTXfifo(TX_NORMAL_FIFO_START_ADDR+1, BYTEPTR(length), 1); // frame length (m+n)
 
-    RadioStatus.TX_BUSY = 1;                                    // mark TX as busy TXing
-    RadioStatus.TX_PENDING_ACK = Tx.frameControl.Field.ackRequest;
+    dev_main->RadioStatus.TX_BUSY = 1;                                    // mark TX as busy TXing
+    dev_main->RadioStatus.TX_PENDING_ACK = dev_main->Tx.frameControl.Field.ackRequest;
 
     lowWrite(TXNCON, TXNTRIG);// kick off transmit with above parameters
 }
@@ -673,15 +688,15 @@ void RadioTXPacket(void){
 
     if(RadioWaitTXResult() == TX_RESULT_SUCCESS)
         {
-        if (Tx.frameControl.Field.srcAddrMode == SHORT_ADDR_FIELD)
+        if (dev_main->Tx.frameControl.Field.srcAddrMode == SHORT_ADDR_FIELD)
             {
-            Tx.srcAddr = RadioStatus.MyShortAddress;
+            dev_main->Tx.srcAddr = dev_main->RadioStatus.MyShortAddress;
             }
-        else if (Tx.frameControl.Field.srcAddrMode == LONG_ADDR_FIELD)
+        else if (dev_main->Tx.frameControl.Field.srcAddrMode == LONG_ADDR_FIELD)
             {
-            Tx.srcAddr = RadioStatus.MyLongAddress;
+            dev_main->Tx.srcAddr = dev_main->RadioStatus.MyLongAddress;
             }
-        Tx.frameNumber = RadioStatus.IEEESeqNum++;
+        dev_main->Tx.frameNumber = dev_main->RadioStatus.IEEESeqNum++;
 
         RadioTXRaw();
         }
@@ -695,27 +710,27 @@ uint8_t MRF24J40_CheckChannelAssessment(void){
 
 // returns status of last transmitted packet: TX_SUCCESS (1), TX_FAILED (2), or 0 = no result yet because TX busy
 uint8_t RadioTXResult(void) {
-    if (RadioStatus.TX_BUSY) // if TX not done yet
+    if (dev_main->RadioStatus.TX_BUSY) // if TX not done yet
         return TX_RESULT_BUSY;
 
-    return TX_RESULT_SUCCESS + RadioStatus.TX_FAIL; // 1=success, 2=fail
+    return TX_RESULT_SUCCESS + dev_main->RadioStatus.TX_FAIL; // 1=success, 2=fail
 }
 
 // returns TX_RESULT_SUCCESS or TX_RESULT_FAILED.  Waits up to MRF24J40_TIMEOUT_TIME.
 
 uint8_t RadioWaitTXResult(void) {
 
-    while (RadioStatus.TX_BUSY) // If TX is busy, wait for it to clear (for a resaonable time)
-        if (MRF24J40IF_ElapsedTimeSince(RadioStatus.LastTXTriggerTick) > MRF24J40_TIMEOUT_TIME){ // if not ready in a resonable time
+    while (dev_main->RadioStatus.TX_BUSY) // If TX is busy, wait for it to clear (for a resaonable time)
+        if (MRF24J40IF_ElapsedTimeSince(dev_main->RadioStatus.LastTXTriggerTick) > MRF24J40_TIMEOUT_TIME){ // if not ready in a resonable time
             if(MRF24J40_CheckChannelAssessment() == CHANNEL_BUSY){
                 initMRF24J40(); // reset radio hardware (stay on same channel)
             }
             else{
-                RadioStatus.TX_BUSY = 0;
+                dev_main->RadioStatus.TX_BUSY = 0;
             }
         }
 
-    return TX_RESULT_SUCCESS + RadioStatus.TX_FAIL; // 1=success, 2=fail
+    return TX_RESULT_SUCCESS + dev_main->RadioStatus.TX_FAIL; // 1=success, 2=fail
 }
 
 
@@ -743,22 +758,22 @@ uint8_t RadioRXPacket(void) {
     //        if (mrf24j40_ElapsedTimeSince(RadioStatus.LastTXTriggerTick) > MRF24J40_TIMEOUT_TIME) // if not ready in a resonable time
     //            initMRF24J40(); // reset radio hardware (stay on same channel)
 
-    return RadioStatus.RXPacketCount;
+    return dev_main->RadioStatus.RXPacketCount;
 }
 
 void RadioDiscardPacket(void) {
-    if (RadioStatus.RXPacketCount) // just in case we get called more than we ought
+    if (dev_main->RadioStatus.RXPacketCount) // just in case we get called more than we ought
     {
-        RadioStatus.RXPacketCount--;
+        dev_main->RadioStatus.RXPacketCount--;
     } else
-        RadioStatus.RadioExtraDiscard++;
+        dev_main->RadioStatus.RadioExtraDiscard++;
 }
 
 
 // Interrupt handler for the MRF24J40 and P2P stack
 
 void CNZBInterrupt(void) {
-    MRF24J40_InterruptDisable();
+    MRF24J40_InterruptDisable(&dev_main->interface);
 
     MRF24J40_IFREG iflags;                                                          // clear IF immediately to allow next interrupt
 
@@ -771,7 +786,7 @@ void CNZBInterrupt(void) {
 
         ParseReceivedMessage();
 
-        RadioStatus.RXPacketCount++;
+        dev_main->RadioStatus.RXPacketCount++;
 
 
         lowWrite(RXFLUSH, RXFLUSH_BIT); // flush RX hw FIFO manually (workaround for silicon errata #1)
@@ -780,21 +795,21 @@ void CNZBInterrupt(void) {
 
     if (iflags.bits.TXIFG) // TX int?  If so, this means TX is no longer busy, and the result (if any) of the ACK request is in
     {
-        RadioStatus.TX_BUSY = 0; // clear busy flag (TX is complete now)
+        dev_main->RadioStatus.TX_BUSY = 0; // clear busy flag (TX is complete now)
 
-        if (RadioStatus.TX_PENDING_ACK) // if we were waiting for an ACK
+        if (dev_main->RadioStatus.TX_PENDING_ACK) // if we were waiting for an ACK
         {
             uint8_t txSTAT = lowRead(TXSTAT); // read TXSTAT, transmit status register
-            RadioStatus.TX_FAIL = txSTAT & TXNSTAT; // read TXNSTAT (TX failure status)
-            RadioStatus.TX_RETRIES = (txSTAT & (TXNRETRY_0|TXNRETRY_1)) RSH(BIT_6); // read TXNRETRY, number of retries of last sent packet (0..3)
-            RadioStatus.TX_CCAFAIL = (txSTAT & CCAFAIL) RSH(BIT_5); // read CCAFAIL
+            dev_main->RadioStatus.TX_FAIL = txSTAT & TXNSTAT; // read TXNSTAT (TX failure status)
+            dev_main->RadioStatus.TX_RETRIES = (txSTAT & (TXNRETRY_0|TXNRETRY_1)) RSH(BIT_6); // read TXNRETRY, number of retries of last sent packet (0..3)
+            dev_main->RadioStatus.TX_CCAFAIL = (txSTAT & CCAFAIL) RSH(BIT_5); // read CCAFAIL
 
-            RadioStatus.TX_PENDING_ACK = 0; // TX finished, clear that I am pending an ACK, already got it (if I was gonna get it)
-            RadioStatus.LastTXTriggerTick = MRF24J40IF_GetSysMilliseconds(); // record time (used to check for locked-up radio or PLL loss)
+            dev_main->RadioStatus.TX_PENDING_ACK = 0; // TX finished, clear that I am pending an ACK, already got it (if I was gonna get it)
+            dev_main->RadioStatus.LastTXTriggerTick = MRF24J40IF_GetSysMilliseconds(); // record time (used to check for locked-up radio or PLL loss)
         }
     }
 
-    MRF24J40_InterruptEnable();
+    MRF24J40_InterruptEnable(&dev_main->interface);
 }
 
 // inits Tx structure for simple point-to-point connection between a single pair of devices who both use the same address
@@ -804,22 +819,88 @@ void CNZBInterrupt(void) {
 // then calling RadioTXPacket()
 
 void RadioInitP2P(void) {
-    Tx.frameControl.Field.frameType = FRAME_TYPE_DATA;
-    Tx.frameControl.Field.securityEnabled = 0x00;
-    Tx.frameControl.Field.framePending = 0x00;
-    Tx.frameControl.Field.ackRequest = 0x01;
-    Tx.frameControl.Field.panIDcomp = 0x01;
-    Tx.frameControl.Field.dstAddrMode = SHORT_ADDR_FIELD;
-    Tx.frameControl.Field.frameVersion = 0;
-    Tx.frameControl.Field.srcAddrMode = NO_ADDR_FIELD;
-    Tx.dstPANID = RadioStatus.MyPANID;
-    Tx.dstAddr = RadioStatus.ServerShortAddress;
+    dev_main->Tx.frameControl.Field.frameType = FRAME_TYPE_DATA;
+    dev_main->Tx.frameControl.Field.securityEnabled = 0x00;
+    dev_main->Tx.frameControl.Field.framePending = 0x00;
+    dev_main->Tx.frameControl.Field.ackRequest = 0x01;
+    dev_main->Tx.frameControl.Field.panIDcomp = 0x01;
+    dev_main->Tx.frameControl.Field.dstAddrMode = SHORT_ADDR_FIELD;
+    dev_main->Tx.frameControl.Field.frameVersion = 0;
+    dev_main->Tx.frameControl.Field.srcAddrMode = NO_ADDR_FIELD;
+    dev_main->Tx.dstPANID = dev_main->RadioStatus.MyPANID;
+    dev_main->Tx.dstAddr = dev_main->RadioStatus.ServerShortAddress;
     //Tx.srcAddrMode = SHORT_ADDR_FIELD;
 }
 
 void ZigBeeDisable(void)
 {
 
-    MRF24J40_Disable();
+    MRF24J40_Disable(&dev_main->interface);
 
+}
+    //check wheter regs have their initial values
+MRF_RESULT MRF_PostInitCheck (MRF24J40_DEVICE* dev)
+{
+    uint64_t error=0;
+    uint8_t i=0;
+    
+    //RXFLUSH = 0x01 flush the RX fifo) = leave WAKE pin disabled
+    //Cleared after init
+    if (lowRead(RXFLUSH) != CLEAR_REGISTER) error |= (1<<i); i++;
+	 // RFOPT=0x03
+    if (highRead(RFCON0) != (RFOPT_1|RFOPT_0)) error |= (1<<i); i++;
+	 // VCOOPT=0x02) != per datasheet
+    if (highRead(RFCON1) != VCOOPT_1) error |= (1<<i); i++;
+	 // RFCON2 = 0x80 PLL enable
+    if (highRead(RFCON2) != PLLEN) error |= (1<<i); i++;
+	 // RFCON3 = 0x00 set transmit power
+    if (highRead(RFCON3) != TX_POWER) error |= (1<<i); i++;
+	 // RFCON6 = 0x90 TXFILter on) = 20MRECVR set to < 3 mS
+    if (highRead(RFCON6) != (TXFIL|_20MRECVR)) error |= (1<<i); i++;
+	 // RFCON7 = 0x80 sleep clock 100 kHz internal
+    if (highRead(RFCON7) != SLPCLKSEL_1) error |= (1<<i); i++;
+	 // RFCON8 = 0x10 RFVCO to 1    
+    if (highRead(RFCON8) != RFVCO) error |= (1<<i); i++;
+	 // SLPCON1 = 0x21 CLKOUT disabled) = sleep clock divisor is 2
+    if (highRead(SLPCON1) != (CLKOUTEN|SLPCLKDIV_0)) error |= (1<<i); i++;
+	 // BBREG2 = 0x80 CCA energy threshold mode
+     // ERROR: has 0x48
+    if (lowRead(BBREG2) != CCAMO) error |= (1<<i); i++;
+	 // CCAEDTH = 0x60 CCA threshold ~ -69 dBm
+    if (lowRead(CCAEDTH) != (CCAEDTH_6|CCAEDTH_5)) error |= (1<<i); i++;
+	 // BBREG6 = 0x40 RSSI on every packet
+     // can be 0x41 if there is set RSSIRDY bit
+    if (!(lowRead(BBREG6) & RSSIMODE_2)) error |= (1<<i); i++;
+	
+ // TESTMODE = 0x0F setup for PA_LNA mode control
+#if defined(ENABLE_PA_LNA)
+    if (highRead(TESTMODE) = TESTMODE_3|TESTMODE_2|TESTMODE_1|TESTMODE_0) error |= (1<<i); i++;
+#endif
+ // PACON2 = 0x98) = per datasheet init
+    if (lowRead(PACON2) != (FIFOEN|TXONTS2|TXONTS1)) error |= (1<<i); i++;
+	 // TXSTBL = 0x95 error |= (1<<i); i++; RFSTBL=9) = MSIFS-5
+    if (lowRead(TXSTBL) != (RFSTBL_3|RFSTBL_0|MSIFS_2|MSIFS_0)) error |= (1<<i); i++;
+     // INTCON = 0xF6) = enabled=0. RXIE and TXNIE only enabled.
+    if (lowRead(INTCON) != (uint8_t)(~(RXIE|TXNIE))) error |= (1<<i); i++;
+
+    // Make RF communication stable under extreme temperatures
+	 // RFCON0 = 0x03 this was previously done above
+    if (highRead(RFCON0) != (RFOPT_1|RFOPT_0)) error |= (1<<i); i++;
+	 // RFCON1 = 0x02 VCCOPT - whatever that does...
+    if (highRead(RFCON1) != VCOOPT_1) error |= (1<<i); i++;
+    
+	          // propriatary TURBO_MODE runs at 625 kbps (vs. 802.15.4 compliant 250 kbps)
+#ifdef TURBO_MODE 
+    if (lowRead(BBREG0) != TURBO) error |= (1<<i); i++;    // BBREG0 = 0x01 TURBO mode enable
+	    // BBREG3 = 0x38 PREVALIDTH to turbo optimized setting
+    if (lowRead(BBREG3) != CCACSTH_3|CCACSTH_2|CCACSTH_1) error |= (1<<i); i++;
+	    // BBREG4 = 0x5C CSTH carrier sense threshold to turbo optimal
+    if (lowRead(BBREG4) != CSTH_1|PRECNT_2|PRECNT_1|PRECNT_0) error |= (1<<i); i++;
+#endif
+ // RFCTL = 0x00 back to normal operation
+    if (lowRead(RFCTL) != CLEAR_REGISTER) error |= (1<<i); i++;
+    
+    if (!error) return MRF_OK;
+    dev->RadioStatus.ErrorLevel=error;
+    return MRF_ERROR;
 }

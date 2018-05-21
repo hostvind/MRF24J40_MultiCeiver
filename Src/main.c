@@ -80,8 +80,8 @@ static void MX_SPI2_Init(void);
 /* USER CODE END PFP */
 
 /* USER CODE BEGIN 0 */
-mrf24j40_dev mrf1, mrf2;
-extern mrf24j40_dev* dev;
+MRF24J40_DEVICE mrf1, mrf2;
+//MRF24L01_DEVICE* dev;
 /* USER CODE END 0 */
 
 /**
@@ -128,53 +128,63 @@ int main(void)
  ;
   
                 /*============HERE STARTS FUN============*/
-  dev=&mrf1;
-  dev->MRF_CSN_GPIOx = GPIOA;
-  dev->MRF_CSN_GPIO_PIN = GPIO_PIN_4;
-  dev->MRF_RESET_GPIOx = GPIOA;
-  dev->MRF_RESET_GPIO_PIN = GPIO_PIN_0;
-  dev->MRF_WAKE_GPIOx = GPIOA;
-  dev->MRF_WAKE_GPIO_PIN = GPIO_PIN_1;
-  dev->MRF_IRQ_GPIOx = GPIOA;
-  dev->MRF_IRQ_GPIO_PIN = GPIO_PIN_2;
-  dev->MRF_IRQn = EXTI2_IRQn;
-  dev->spi = &hspi1;
-  if (RadioInit() == MRF_OK)
+  dev_main=&mrf1;
+  dev_main->interface.MRF_RESET_GPIOx = GPIOA;
+  dev_main->interface.MRF_RESET_GPIO_PIN = GPIO_PIN_0;
+  dev_main->interface.MRF_WAKE_GPIOx = GPIOA;
+  dev_main->interface.MRF_WAKE_GPIO_PIN = GPIO_PIN_1;
+  dev_main->interface.MRF_IRQ_GPIOx = GPIOA;
+  dev_main->interface.MRF_IRQ_GPIO_PIN = GPIO_PIN_2;
+  dev_main->interface.MRF_IRQn = EXTI2_IRQn;
+  dev_main->interface.MRF_CSN_GPIOx = GPIOA;
+  dev_main->interface.MRF_CSN_GPIO_PIN = GPIO_PIN_4;
+  dev_main->interface.spi = &hspi1;
+  RadioInit();
+  if (MRF_PostInitCheck(dev_main) == MRF_OK)
   {
-      sprintf (push_p, "\nBattlecruiser operational.\nStatus code: 0x01\n");
+      sprintf (push_p, "\nBattlecruiser operational.\n");
 /*DEBUG LINE*/      HAL_GPIO_WritePin (LED2_GPIO_Port, LED2_Pin, GPIO_PIN_SET);
   }
   else
   {
-      sprintf (push_p, "\nIt's a trap!\nError code: 0x00\n");
+      sprintf (push_p, "\nIt's a trap!\nError code: 0x%lx \n",dev_main->RadioStatus.ErrorLevel);
 /*DEBUG LINE*/      HAL_GPIO_WritePin (LED3_GPIO_Port, LED3_Pin, GPIO_PIN_SET);
   }
   HAL_UART_Transmit(&huart1, push, strlen (push_p), 100);
+  sprintf (pull_p, "INTSTAT = 0x%x\n", ReadRegister(INTSTAT));
+  HAL_UART_Transmit(&huart1, pull, strlen (pull_p), 100);
+  sprintf (pull_p, "INTCON = 0x%x\n", ReadRegister(INTCON));
+  HAL_UART_Transmit(&huart1, pull, strlen (pull_p), 100);
+  
   
                 /*============HERE FUN DOUBLES UP============*/
-  dev=&mrf2;
-  dev->MRF_CSN_GPIOx = GPIOB;
-  dev->MRF_CSN_GPIO_PIN = GPIO_PIN_12;
-  dev->MRF_RESET_GPIOx = GPIOB;
-  dev->MRF_RESET_GPIO_PIN = GPIO_PIN_9;
-  dev->MRF_WAKE_GPIOx = GPIOB;
-  dev->MRF_WAKE_GPIO_PIN = GPIO_PIN_11;
-  dev->MRF_IRQ_GPIOx = GPIOB;
-  dev->MRF_IRQ_GPIO_PIN = GPIO_PIN_10;
-  dev->MRF_IRQn = EXTI15_10_IRQn;
-  dev->spi = &hspi2;
-  if (RadioInit() == MRF_OK)
+  dev_main=&mrf2;
+  dev_main->interface.MRF_RESET_GPIOx = GPIOB;
+  dev_main->interface.MRF_RESET_GPIO_PIN = GPIO_PIN_0;
+  dev_main->interface.MRF_IRQ_GPIOx = GPIOB;
+  dev_main->interface.MRF_IRQ_GPIO_PIN = GPIO_PIN_1;
+  dev_main->interface.MRF_IRQn = EXTI1_IRQn;
+  dev_main->interface.MRF_WAKE_GPIOx = GPIOB;
+  dev_main->interface.MRF_WAKE_GPIO_PIN = GPIO_PIN_11;
+  dev_main->interface.MRF_CSN_GPIOx = GPIOB;
+  dev_main->interface.MRF_CSN_GPIO_PIN = GPIO_PIN_12;
+  dev_main->interface.spi = &hspi2;
+  RadioInit();
+  if (MRF_PostInitCheck(dev_main) == MRF_OK)
   {
       sprintf (push_p, "\nCARRIER HAS ARRIVED\n");
 /*DEBUG LINE*/      HAL_GPIO_WritePin (LED2_GPIO_Port, LED2_Pin, GPIO_PIN_SET);
   }
   else
   {
-      sprintf (push_p, "\nCAN'T HEAR ME\n");
+      sprintf (push_p, "\nCAN'T HEAR ME\nError code: 0x%lx \n",dev_main->RadioStatus.ErrorLevel);
 /*DEBUG LINE*/      HAL_GPIO_WritePin (LED3_GPIO_Port, LED3_Pin, GPIO_PIN_SET);
   }
-  HAL_UART_Transmit(&huart1, push, strlen (push_p), 100);  
-  
+  HAL_UART_Transmit(&huart1, push, strlen (push_p), 100);
+  sprintf (pull_p, "INTSTAT = 0x%x\n", ReadRegister(INTSTAT));
+  HAL_UART_Transmit(&huart1, pull, strlen (pull_p), 100);
+  sprintf (pull_p, "INTCON = 0x%x\n", ReadRegister(INTCON));
+  HAL_UART_Transmit(&huart1, pull, strlen (pull_p), 100);
   
   /* USER CODE END 2 */
 
@@ -345,35 +355,44 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, nReset1_Pin|Wake1_Pin|CN1_Pin|CS1_Pin 
-                          |LED1_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, nReset1_Pin|Wake1_Pin|CS1_Pin|LED1_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, LED2_Pin|LED3_Pin|LED4_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, nReset2_Pin|Wake2_Pin|CS2_Pin|LED2_Pin 
+                          |LED3_Pin|LED4_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pins : nReset1_Pin Wake1_Pin CN1_Pin CS1_Pin 
-                           LED1_Pin */
-  GPIO_InitStruct.Pin = nReset1_Pin|Wake1_Pin|CN1_Pin|CS1_Pin 
-                          |LED1_Pin;
+  /*Configure GPIO pins : nReset1_Pin Wake1_Pin CS1_Pin LED1_Pin */
+  GPIO_InitStruct.Pin = nReset1_Pin|Wake1_Pin|CS1_Pin|LED1_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pin : IRQ1_Pin */
   GPIO_InitStruct.Pin = IRQ1_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
-  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(IRQ1_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : LED2_Pin LED3_Pin LED4_Pin */
-  GPIO_InitStruct.Pin = LED2_Pin|LED3_Pin|LED4_Pin;
+  /*Configure GPIO pins : nReset2_Pin Wake2_Pin CS2_Pin LED2_Pin 
+                           LED3_Pin LED4_Pin */
+  GPIO_InitStruct.Pin = nReset2_Pin|Wake2_Pin|CS2_Pin|LED2_Pin 
+                          |LED3_Pin|LED4_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
+  /*Configure GPIO pin : IRQ2_Pin */
+  GPIO_InitStruct.Pin = IRQ2_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(IRQ2_GPIO_Port, &GPIO_InitStruct);
+
   /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI1_IRQn, 0, 0);
+  //HAL_NVIC_EnableIRQ(EXTI1_IRQn);
+
   HAL_NVIC_SetPriority(EXTI2_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(EXTI2_IRQn);
+  //HAL_NVIC_EnableIRQ(EXTI2_IRQn);
 
 }
 
